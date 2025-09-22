@@ -7,10 +7,12 @@
     "start": "node server.js"
   },
   "dependencies": {
-    "express": "^4.18.2",
     "cors": "^2.8.5",
-    "mongoose": "^6.x.x",     // usa una versión actual
-    "dotenv": "^16.x.x"
+    "dotenv": "^16.3.1",
+    "express": "^4.18.2",
+    "mongoose": "^7.5.0"
+  },
+  "engines": {
+    "node": "22.x"
   }
 }
-
