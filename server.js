@@ -75,12 +75,12 @@ app.post('/api/shorturl', async (req, res) => {
     
     // Verificar si se proporcionó URL
     if (!url) {
-      return res.json({ error: 'invalid_url' });
+      return res.json({ error: 'invalid url' });
     }
     
     // Validar formato de URL
     if (!isValidUrl(url)) {
-      return res.json({ error: 'invalid_url' });
+      return res.json({ error: 'invalid url' });
     }
     
     // Verificar conexión a BD
