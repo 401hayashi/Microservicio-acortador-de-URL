@@ -1,7 +1,6 @@
 const express = require('express');
 const cors = require('cors');
 const mongoose = require('mongoose');
-const dns = require('dns');
 const { URL } = require('url');
 require('dotenv').config();
 
@@ -15,11 +14,36 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(express.static('public'));
 
-// MongoDB connection
-mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/urlshortener', {
-  useNewUrlParser: true,
-  useUnifiedTopology: true
-});
+// MongoDB connection con mejor manejo de errores
+const connectDB = async () => {
+  try {
+    const mongoURI = process.env.MONGODB_URI;
+    
+    if (!mongoURI) {
+      throw new Error('MONGODB_URI no está definida en las variables de entorno');
+    }
+    
+    console.log('Conectando a MongoDB...');
+    await mongoose.connect(mongoURI, {
+      useNewUrlParser: true,
+      useUnifiedTopology: true,
+      serverSelectionTimeoutMS: 5000, // 5 segundos de timeout
+      socketTimeoutMS: 45000, // 45 segundos
+    });
+    
+    console.log('✅ Conectado a MongoDB Atlas correctamente');
+  } catch (error) {
+    console.error('❌ Error conectando a MongoDB:', error.message);
+    console.log('💡 Verifica:');
+    console.log('1. La variable MONGODB_URI en Render');
+    console.log('2. Network Access en MongoDB Atlas (0.0.0.0/0)');
+    console.log('3. El usuario de la base de datos');
+    process.exit(1);
+  }
+};
+
+// Conectar a la base de datos al iniciar
+connectDB();
 
 // URL Schema
 const urlSchema = new mongoose.Schema({
@@ -36,11 +60,10 @@ const urlSchema = new mongoose.Schema({
 
 const Url = mongoose.model('Url', urlSchema);
 
-// Helper function to validate URL format (strictly for freeCodeCamp tests)
+// Helper function to validate URL format
 function isValidUrl(urlString) {
   try {
     const urlObj = new URL(urlString);
-    // freeCodeCamp requiere formato específico como http://www.example.com
     return urlObj.protocol === 'http:' || urlObj.protocol === 'https:';
   } catch (error) {
     return false;
@@ -55,6 +78,10 @@ app.get('/', (req, res) => {
 // POST endpoint to create short URL
 app.post('/api/shorturl', async (req, res) => {
   const { url } = req.body;
+  
+  if (!url) {
+    return res.json({ error: 'invalid url' });
+  }
   
   // Validar formato de URL
   if (!isValidUrl(url)) {
@@ -89,7 +116,7 @@ app.post('/api/shorturl', async (req, res) => {
     });
     
   } catch (error) {
-    console.error(error);
+    console.error('Error en POST /api/shorturl:', error);
     res.json({ error: 'server error' });
   }
 });
@@ -112,16 +139,22 @@ app.get('/api/shorturl/:short_url', async (req, res) => {
     res.redirect(urlDoc.original_url);
     
   } catch (error) {
-    console.error(error);
+    console.error('Error en GET /api/shorturl:', error);
     res.json({ error: 'server error' });
   }
 });
 
-// Endpoint para testing (opcional)
-app.get('/api/hello', (req, res) => {
-  res.json({ greeting: 'hello API' });
+// Health check endpoint
+app.get('/health', (req, res) => {
+  const dbStatus = mongoose.connection.readyState === 1 ? 'connected' : 'disconnected';
+  res.json({ 
+    status: 'ok', 
+    database: dbStatus,
+    timestamp: new Date().toISOString()
+  });
 });
 
 app.listen(port, function() {
-  console.log(`Listening on port ${port}`);
+  console.log(`🚀 Servidor ejecutándose en puerto ${port}`);
+  console.log(`📊 Estado BD: ${mongoose.connection.readyState === 1 ? 'Conectado' : 'Desconectado'}`);
 });
