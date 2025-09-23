@@ -2,24 +2,26 @@ const express = require('express');
 const cors = require('cors');
 const mongoose = require('mongoose');
 const dns = require('dns');
-const url = require('url');
+const { URL } = require('url');
 require('dotenv').config();
 
 const app = express();
 
-// Middleware
+// Basic Configuration
+const port = process.env.PORT || 3000;
+
 app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(express.static('public'));
 
-// Conexión a MongoDB
+// MongoDB connection
 mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/urlshortener', {
   useNewUrlParser: true,
   useUnifiedTopology: true
 });
 
-// Esquema de URL
+// URL Schema
 const urlSchema = new mongoose.Schema({
   original_url: {
     type: String,
@@ -32,125 +34,94 @@ const urlSchema = new mongoose.Schema({
   }
 });
 
-const URLModel = mongoose.model('URL', urlSchema);
+const Url = mongoose.model('Url', urlSchema);
 
-// Función para validar URL
-function isValidUrl(string) {
+// Helper function to validate URL format (strictly for freeCodeCamp tests)
+function isValidUrl(urlString) {
   try {
-    const parsedUrl = new URL(string);
-    return parsedUrl.protocol === 'http:' || parsedUrl.protocol === 'https:';
-  } catch (err) {
+    const urlObj = new URL(urlString);
+    // freeCodeCamp requiere formato específico como http://www.example.com
+    return urlObj.protocol === 'http:' || urlObj.protocol === 'https:';
+  } catch (error) {
     return false;
   }
 }
 
-// Función para verificar si la URL existe
-function urlExists(urlString, callback) {
-  try {
-    const parsedUrl = new URL(urlString);
-    dns.lookup(parsedUrl.hostname, (err) => {
-      callback(!err);
-    });
-  } catch (err) {
-    callback(false);
-  }
-}
-
-// Rutas
+// Routes
 app.get('/', (req, res) => {
   res.sendFile(__dirname + '/public/index.html');
 });
 
-// Endpoint para crear short URL
-app.post('/api/shorturl', (req, res) => {
-  const originalUrl = req.body.url;
+// POST endpoint to create short URL
+app.post('/api/shorturl', async (req, res) => {
+  const { url } = req.body;
   
-  if (!isValidUrl(originalUrl)) {
+  // Validar formato de URL
+  if (!isValidUrl(url)) {
     return res.json({ error: 'invalid url' });
   }
   
-  urlExists(originalUrl, (exists) => {
-    if (!exists) {
-      return res.json({ error: 'invalid url' });
+  try {
+    // Verificar si la URL ya existe
+    const existingUrl = await Url.findOne({ original_url: url });
+    
+    if (existingUrl) {
+      return res.json({
+        original_url: existingUrl.original_url,
+        short_url: existingUrl.short_url
+      });
     }
     
-    // Buscar si la URL ya existe
-    URLModel.findOne({ original_url: originalUrl })
-      .then(existingUrl => {
-        if (existingUrl) {
-          return res.json({
-            original_url: existingUrl.original_url,
-            short_url: existingUrl.short_url
-          });
-        }
-        
-        // Crear nueva URL corta
-        URLModel.countDocuments()
-          .then(count => {
-            const newUrl = new URLModel({
-              original_url: originalUrl,
-              short_url: count + 1
-            });
-            
-            newUrl.save()
-              .then(savedUrl => {
-                res.json({
-                  original_url: savedUrl.original_url,
-                  short_url: savedUrl.short_url
-                });
-              })
-              .catch(err => {
-                console.error(err);
-                res.json({ error: 'database error' });
-              });
-          })
-          .catch(err => {
-            console.error(err);
-            res.json({ error: 'database error' });
-          });
-      })
-      .catch(err => {
-        console.error(err);
-        res.json({ error: 'database error' });
-      });
-  });
-});
-
-// Endpoint para redirigir
-app.get('/api/shorturl/:short_url', (req, res) => {
-  const shortUrl = parseInt(req.params.short_url);
-  
-  if (isNaN(shortUrl)) {
-    return res.json({ error: 'Wrong format' });
+    // Crear nueva URL corta
+    const count = await Url.countDocuments();
+    const shortUrl = count + 1;
+    
+    const newUrl = new Url({
+      original_url: url,
+      short_url: shortUrl
+    });
+    
+    await newUrl.save();
+    
+    res.json({
+      original_url: url,
+      short_url: shortUrl
+    });
+    
+  } catch (error) {
+    console.error(error);
+    res.json({ error: 'server error' });
   }
-  
-  URLModel.findOne({ short_url: shortUrl })
-    .then(foundUrl => {
-      if (!foundUrl) {
-        return res.json({ error: 'No short URL found for the given input' });
-      }
-      
-      res.redirect(foundUrl.original_url);
-    })
-    .catch(err => {
-      console.error(err);
-      res.json({ error: 'database error' });
-    });
 });
 
-// Endpoint para ver todas las URLs (útil para debugging)
-app.get('/api/all', (req, res) => {
-  URLModel.find({})
-    .then(urls => {
-      res.json(urls);
-    })
-    .catch(err => {
-      console.error(err);
-      res.json({ error: 'database error' });
-    });
+// GET endpoint to redirect to original URL
+app.get('/api/shorturl/:short_url', async (req, res) => {
+  try {
+    const shortUrl = parseInt(req.params.short_url);
+    
+    if (isNaN(shortUrl)) {
+      return res.json({ error: 'Wrong format' });
+    }
+    
+    const urlDoc = await Url.findOne({ short_url: shortUrl });
+    
+    if (!urlDoc) {
+      return res.json({ error: 'No short URL found for the given input' });
+    }
+    
+    res.redirect(urlDoc.original_url);
+    
+  } catch (error) {
+    console.error(error);
+    res.json({ error: 'server error' });
+  }
 });
 
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-  console.log(`Server is running on port ${PORT}`);
+// Endpoint para testing (opcional)
+app.get('/api/hello', (req, res) => {
+  res.json({ greeting: 'hello API' });
+});
+
+app.listen(port, function() {
+  console.log(`Listening on port ${port}`);
 });
