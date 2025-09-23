@@ -12,19 +12,15 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(express.static('public'));
 
-// Conexión mejorada a MongoDB
+// Conexión a MongoDB
 const connectDB = async () => {
   try {
     const mongoURI = process.env.MONGODB_URI;
     
     if (!mongoURI) {
       console.error('❌ MONGODB_URI no está definida');
-      console.log('💡 Configura la variable MONGODB_URI en Render');
       return;
     }
-    
-    console.log('🔗 Conectando a MongoDB...');
-    console.log('📝 URI:', mongoURI.replace(/:[^:]*@/, ':********@')); // Oculta la contraseña en logs
     
     await mongoose.connect(mongoURI, {
       useNewUrlParser: true,
@@ -34,9 +30,7 @@ const connectDB = async () => {
     
     console.log('✅ Conectado a MongoDB correctamente');
   } catch (error) {
-    console.error('❌ Error de conexión a MongoDB:');
-    console.error('📌 Mensaje:', error.message);
-    console.error('💡 Solución: Verifica usuario/contraseña en MongoDB Atlas');
+    console.error('❌ Error de conexión a MongoDB:', error.message);
   }
 };
 
@@ -50,11 +44,11 @@ const urlSchema = new mongoose.Schema({
 
 const Url = mongoose.model('Url', urlSchema);
 
-// Validación de URL
+// Validación de URL - CORREGIDA para freeCodeCamp
 function isValidUrl(urlString) {
   try {
-    new URL(urlString);
-    return true;
+    const urlObj = new URL(urlString);
+    return urlObj.protocol === 'http:' || urlObj.protocol === 'https:';
   } catch (error) {
     return false;
   }
@@ -70,25 +64,31 @@ app.get('/health', (req, res) => {
   const dbStatus = mongoose.connection.readyState;
   res.json({ 
     status: dbStatus === 1 ? 'healthy' : 'unhealthy',
-    database: dbStatus === 1 ? 'connected' : 'disconnected',
-    timestamp: new Date().toISOString()
+    database: dbStatus === 1 ? 'connected' : 'disconnected'
   });
 });
 
-// API endpoints
+// API endpoints - CORREGIDOS los mensajes de error
 app.post('/api/shorturl', async (req, res) => {
   try {
     const { url } = req.body;
     
-    if (!url || !isValidUrl(url)) {
-      return res.json({ error: 'Invalid URL' });
+    // Verificar si se proporcionó URL
+    if (!url) {
+      return res.json({ error: 'invalid_url' });
+    }
+    
+    // Validar formato de URL
+    if (!isValidUrl(url)) {
+      return res.json({ error: 'invalid_url' });
     }
     
     // Verificar conexión a BD
     if (mongoose.connection.readyState !== 1) {
-      return res.json({ error: 'database unavailable' });
+      return res.json({ error: 'database_unavailable' });
     }
     
+    // Buscar URL existente
     const existingUrl = await Url.findOne({ original_url: url });
     if (existingUrl) {
       return res.json({
@@ -97,6 +97,7 @@ app.post('/api/shorturl', async (req, res) => {
       });
     }
     
+    // Crear nueva URL corta
     const count = await Url.countDocuments();
     const newUrl = new Url({
       original_url: url,
@@ -104,30 +105,49 @@ app.post('/api/shorturl', async (req, res) => {
     });
     
     await newUrl.save();
-    res.json({ original_url: url, short_url: count + 1 });
+    
+    res.json({ 
+      original_url: url, 
+      short_url: count + 1 
+    });
     
   } catch (error) {
     console.error('Error en POST /api/shorturl:', error);
-    res.json({ error: 'server error' });
+    res.json({ error: 'server_error' });
   }
 });
 
+// Endpoint de redirección
 app.get('/api/shorturl/:short_url', async (req, res) => {
   try {
     const shortUrl = parseInt(req.params.short_url);
     
-    if (isNaN(shortUrl) || mongoose.connection.readyState !== 1) {
-      return res.json({ error: 'invalid' });
+    if (isNaN(shortUrl)) {
+      return res.json({ error: 'wrong_format' });
+    }
+    
+    if (mongoose.connection.readyState !== 1) {
+      return res.json({ error: 'database_unavailable' });
     }
     
     const urlDoc = await Url.findOne({ short_url: shortUrl });
     if (!urlDoc) {
-      return res.json({ error: 'No short URL found for the given input' });
+      return res.json({ error: 'no_short_url_found' });
     }
     
     res.redirect(urlDoc.original_url);
   } catch (error) {
-    res.json({ error: 'server error' });
+    res.json({ error: 'server_error' });
+  }
+});
+
+// Endpoint para testing - ver todas las URLs
+app.get('/api/all', async (req, res) => {
+  try {
+    const urls = await Url.find({});
+    res.json(urls);
+  } catch (error) {
+    res.json({ error: 'server_error' });
   }
 });
 
