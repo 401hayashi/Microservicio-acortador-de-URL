@@ -75,7 +75,7 @@ app.post('/api/shorturl', async (req, res) => {
     
     // Verificar si se proporcionó URL
     if (!url) {
-      return res.json({ error: 'invalid url' });
+      return res.json({ error: 'invalid URL' });
     }
     
     // Validar formato de URL
