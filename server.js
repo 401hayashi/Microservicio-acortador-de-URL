@@ -5,8 +5,6 @@ const { URL } = require('url');
 require('dotenv').config();
 
 const app = express();
-
-// Basic Configuration
 const port = process.env.PORT || 3000;
 
 app.use(cors());
@@ -14,57 +12,49 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(express.static('public'));
 
-// MongoDB connection con mejor manejo de errores
+// Conexión mejorada a MongoDB
 const connectDB = async () => {
   try {
     const mongoURI = process.env.MONGODB_URI;
     
     if (!mongoURI) {
-      throw new Error('MONGODB_URI no está definida en las variables de entorno');
+      console.error('❌ MONGODB_URI no está definida');
+      console.log('💡 Configura la variable MONGODB_URI en Render');
+      return;
     }
     
-    console.log('Conectando a MongoDB...');
+    console.log('🔗 Conectando a MongoDB...');
+    console.log('📝 URI:', mongoURI.replace(/:[^:]*@/, ':********@')); // Oculta la contraseña en logs
+    
     await mongoose.connect(mongoURI, {
       useNewUrlParser: true,
       useUnifiedTopology: true,
-      serverSelectionTimeoutMS: 5000, // 5 segundos de timeout
-      socketTimeoutMS: 45000, // 45 segundos
+      serverSelectionTimeoutMS: 10000,
     });
     
-    console.log('✅ Conectado a MongoDB Atlas correctamente');
+    console.log('✅ Conectado a MongoDB correctamente');
   } catch (error) {
-    console.error('❌ Error conectando a MongoDB:', error.message);
-    console.log('💡 Verifica:');
-    console.log('1. La variable MONGODB_URI en Render');
-    console.log('2. Network Access en MongoDB Atlas (0.0.0.0/0)');
-    console.log('3. El usuario de la base de datos');
-    process.exit(1);
+    console.error('❌ Error de conexión a MongoDB:');
+    console.error('📌 Mensaje:', error.message);
+    console.error('💡 Solución: Verifica usuario/contraseña en MongoDB Atlas');
   }
 };
 
-// Conectar a la base de datos al iniciar
 connectDB();
 
-// URL Schema
+// Schema y modelo
 const urlSchema = new mongoose.Schema({
-  original_url: {
-    type: String,
-    required: true
-  },
-  short_url: {
-    type: Number,
-    required: true,
-    unique: true
-  }
+  original_url: { type: String, required: true },
+  short_url: { type: Number, required: true, unique: true }
 });
 
 const Url = mongoose.model('Url', urlSchema);
 
-// Helper function to validate URL format
+// Validación de URL
 function isValidUrl(urlString) {
   try {
-    const urlObj = new URL(urlString);
-    return urlObj.protocol === 'http:' || urlObj.protocol === 'https:';
+    new URL(urlString);
+    return true;
   } catch (error) {
     return false;
   }
@@ -75,23 +65,31 @@ app.get('/', (req, res) => {
   res.sendFile(__dirname + '/public/index.html');
 });
 
-// POST endpoint to create short URL
+// Health check
+app.get('/health', (req, res) => {
+  const dbStatus = mongoose.connection.readyState;
+  res.json({ 
+    status: dbStatus === 1 ? 'healthy' : 'unhealthy',
+    database: dbStatus === 1 ? 'connected' : 'disconnected',
+    timestamp: new Date().toISOString()
+  });
+});
+
+// API endpoints
 app.post('/api/shorturl', async (req, res) => {
-  const { url } = req.body;
-  
-  if (!url) {
-    return res.json({ error: 'invalid url' });
-  }
-  
-  // Validar formato de URL
-  if (!isValidUrl(url)) {
-    return res.json({ error: 'invalid url' });
-  }
-  
   try {
-    // Verificar si la URL ya existe
-    const existingUrl = await Url.findOne({ original_url: url });
+    const { url } = req.body;
     
+    if (!url || !isValidUrl(url)) {
+      return res.json({ error: 'invalid url' });
+    }
+    
+    // Verificar conexión a BD
+    if (mongoose.connection.readyState !== 1) {
+      return res.json({ error: 'database unavailable' });
+    }
+    
+    const existingUrl = await Url.findOne({ original_url: url });
     if (existingUrl) {
       return res.json({
         original_url: existingUrl.original_url,
@@ -99,21 +97,14 @@ app.post('/api/shorturl', async (req, res) => {
       });
     }
     
-    // Crear nueva URL corta
     const count = await Url.countDocuments();
-    const shortUrl = count + 1;
-    
     const newUrl = new Url({
       original_url: url,
-      short_url: shortUrl
+      short_url: count + 1
     });
     
     await newUrl.save();
-    
-    res.json({
-      original_url: url,
-      short_url: shortUrl
-    });
+    res.json({ original_url: url, short_url: count + 1 });
     
   } catch (error) {
     console.error('Error en POST /api/shorturl:', error);
@@ -121,40 +112,25 @@ app.post('/api/shorturl', async (req, res) => {
   }
 });
 
-// GET endpoint to redirect to original URL
 app.get('/api/shorturl/:short_url', async (req, res) => {
   try {
     const shortUrl = parseInt(req.params.short_url);
     
-    if (isNaN(shortUrl)) {
-      return res.json({ error: 'Wrong format' });
+    if (isNaN(shortUrl) || mongoose.connection.readyState !== 1) {
+      return res.json({ error: 'invalid' });
     }
     
     const urlDoc = await Url.findOne({ short_url: shortUrl });
-    
     if (!urlDoc) {
       return res.json({ error: 'No short URL found for the given input' });
     }
     
     res.redirect(urlDoc.original_url);
-    
   } catch (error) {
-    console.error('Error en GET /api/shorturl:', error);
     res.json({ error: 'server error' });
   }
 });
 
-// Health check endpoint
-app.get('/health', (req, res) => {
-  const dbStatus = mongoose.connection.readyState === 1 ? 'connected' : 'disconnected';
-  res.json({ 
-    status: 'ok', 
-    database: dbStatus,
-    timestamp: new Date().toISOString()
-  });
-});
-
-app.listen(port, function() {
+app.listen(port, () => {
   console.log(`🚀 Servidor ejecutándose en puerto ${port}`);
-  console.log(`📊 Estado BD: ${mongoose.connection.readyState === 1 ? 'Conectado' : 'Desconectado'}`);
 });
