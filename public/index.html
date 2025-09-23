@@ -1,1 +1,70 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>URL Shortener Microservice</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="container">
+        <h1>URL Shortener Microservice</h1>
+        
+        <section class="usage">
+            <h2>How to use:</h2>
+            <p>POST <code>/api/shorturl</code> with <code>url</code> parameter</p>
+            <p>Example: <code>{"url": "https://www.google.com"}</code></p>
+            <p>Response: <code>{"original_url":"https://www.google.com","short_url":1}</code></p>
+            <p>Visit: <code>/api/shorturl/1</code> to redirect to https://www.google.com</p>
+        </section>
 
+        <section class="demo">
+            <h2>Try it:</h2>
+            <form id="urlForm">
+                <input type="text" id="url_input" placeholder="Enter URL here" required>
+                <button type="submit">POST URL</button>
+            </form>
+            <div id="result"></div>
+        </section>
+
+        <footer>
+            <p>By <a href="https://www.freecodecamp.org/" target="_blank">freeCodeCamp</a> Project</p>
+        </footer>
+    </div>
+
+    <script>
+        document.getElementById('urlForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const urlInput = document.getElementById('url_input').value;
+            const resultDiv = document.getElementById('result');
+            
+            try {
+                const response = await fetch('/api/shorturl', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/x-www-form-urlencoded',
+                    },
+                    body: `url=${encodeURIComponent(urlInput)}`
+                });
+                
+                const data = await response.json();
+                
+                if (data.error) {
+                    resultDiv.innerHTML = `<p class="error">Error: ${data.error}</p>`;
+                } else {
+                    resultDiv.innerHTML = `
+                        <p><strong>Original URL:</strong> ${data.original_url}</p>
+                        <p><strong>Short URL:</strong> 
+                            <a href="/api/shorturl/${data.short_url}" target="_blank">
+                                ${window.location.origin}/api/shorturl/${data.short_url}
+                            </a>
+                        </p>
+                    `;
+                }
+            } catch (error) {
+                resultDiv.innerHTML = `<p class="error">Error: ${error.message}</p>`;
+            }
+        });
+    </script>
+</body>
+</html>
